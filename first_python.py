@@ -29,8 +29,29 @@ def get_stock_price(symbol):
     else:
         print("Error fetching data. Please check the symbol and try again.")
 
-if __name__ == '__main__':
-    symbol = input("Enter stock symbol (e.g., AAPL): ").upper()
-    get_stock_price(symbol)
+
 
 # get_stock_price('AAPL')
+
+def get_historical_data(symbol):
+    params = {
+        'function': 'TIME_SERIES_DAILY_ADJUSTED',
+        'symbol': symbol,
+        'outputsize': 'full',  # 'compact' for last 100 data points, 'full' for full-length
+        'apikey': API_KEY
+    }
+    response = requests.get(BASE_URL, params=params)
+    data = response.json()
+
+    if 'Time Series (Daily)' in data:
+        return data['Time Series (Daily)']
+    else:
+        print("Error fetching historical data")
+        return None
+
+if __name__ == '__main__':
+    symbol = input("Enter stock symbol (e.g., AAPL): ").upper()
+    time_series = get_historical_data(symbol)
+    if time_series:
+        save_to_db(symbol, time_series)
+        print(f"Historical data for {symbol} saved to database.")

@@ -8,6 +8,8 @@
 # Import the requests library to make HTTP requests
 
 import requests # type: ignore
+import sqlite3
+from datetime import datetime
 
 API_KEY = '18NERQFXBESSATBF'  # Replace with your real key
 BASE_URL = 'https://www.alphavantage.co/query'
@@ -48,6 +50,50 @@ def get_historical_data(symbol):
     else:
         print("Error fetching historical data")
         return None
+
+def save_to_db(symbol, time_series):
+    # Connect to SQLite DB (creates it if it doesn't exist)
+    conn = sqlite3.connect('stocks.db')
+    cursor = conn.cursor()
+
+    # Create table if it doesn't exist
+    cursor.execute(f'''
+        CREATE TABLE IF NOT EXISTS stock_data (
+            symbol TEXT,
+            date TEXT,
+            open REAL,
+            high REAL,
+            low REAL,
+            close REAL,
+            adjusted_close REAL,
+            volume INTEGER,
+            PRIMARY KEY (symbol, date)
+        )
+    ''')
+
+    # Insert historical data into DB
+    for date_str, daily_data in time_series.items():
+        try:
+            cursor.execute(f'''
+                INSERT OR REPLACE INTO stock_data (
+                    symbol, date, open, high, low, close, adjusted_close, volume
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                symbol,
+                date_str,
+                float(daily_data['1. open']),
+                float(daily_data['2. high']),
+                float(daily_data['3. low']),
+                float(daily_data['4. close']),
+                float(daily_data['5. adjusted close']),
+                int(daily_data['6. volume'])
+            ))
+        except Exception as e:
+            print(f"Error inserting data for {date_str}: {e}")
+
+    conn.commit()
+    conn.close()
+
 
 if __name__ == '__main__':
     symbol = input("Enter stock symbol (e.g., AAPL): ").upper()

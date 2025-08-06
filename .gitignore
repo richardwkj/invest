@@ -1,1 +1,10 @@
 config.py
+
+# Environment variables - contains sensitive API keys
+.env
+
+# Project configuration - contains dependencies and build settings
+pyproject.toml
+
+# Cursor rules - exclude from version control
+.cursor/rules/

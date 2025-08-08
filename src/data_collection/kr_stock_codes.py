@@ -37,7 +37,7 @@ class KRStockCode(Base):
     __tablename__ = 'kr_stock_codes'
     
     id = Column(Integer, primary_key=True, autoincrement=True)
-    stock_code = Column(Integer, nullable=False, unique=True, index=True)
+    stock_code = Column(String(10), nullable=False, unique=True, index=True)  # Changed to String to accommodate non-numeric tickers
     stock_market = Column(String(10), nullable=False)  # KOSPI or KOSDAQ
     ipo_date = Column(Date, nullable=True)
     delisting_date = Column(Date, nullable=True)
@@ -81,6 +81,55 @@ class KRStockCodeCollector:
             self.logger.error(f"Error creating database tables: {e}")
             raise
     
+    def cleanup_duplicates(self) -> int:
+        """
+        Remove duplicate stock codes from the database, keeping the most recent record.
+        
+        Returns:
+            Number of duplicate records removed
+        """
+        try:
+            session = self.SessionLocal()
+            
+            # Find duplicates based on stock_code
+            duplicates = session.query(KRStockCode.stock_code).group_by(
+                KRStockCode.stock_code
+            ).having(
+                session.query(KRStockCode).filter(
+                    KRStockCode.stock_code == KRStockCode.stock_code
+                ).count() > 1
+            ).all()
+            
+            removed_count = 0
+            
+            for (stock_code,) in duplicates:
+                # Get all records for this stock code
+                records = session.query(KRStockCode).filter(
+                    KRStockCode.stock_code == stock_code
+                ).order_by(KRStockCode.updated_at.desc()).all()
+                
+                # Keep the first (most recent) record, delete the rest
+                for record in records[1:]:
+                    session.delete(record)
+                    removed_count += 1
+            
+            session.commit()
+            session.close()
+            
+            if removed_count > 0:
+                self.logger.info(f"Removed {removed_count} duplicate records")
+            else:
+                self.logger.info("No duplicate records found")
+                
+            return removed_count
+            
+        except Exception as e:
+            self.logger.error(f"Error cleaning up duplicates: {e}")
+            if 'session' in locals():
+                session.rollback()
+                session.close()
+            return 0
+    
     def get_all_stock_codes_from_pykrx(self) -> List[Dict[str, Any]]:
         """
         Get all stock codes from pykrx with basic information.
@@ -91,41 +140,53 @@ class KRStockCodeCollector:
         try:
             self.logger.info("Fetching all stock codes from pykrx")
             
-            # Get all stock tickers from pykrx
-            tickers = stock.get_market_ticker_list()
-            
-            if not tickers:
-                self.logger.error("No stock tickers found from pykrx")
-                return []
-            
-            # Get detailed information for each ticker
             companies = []
-            for ticker in tickers:
+            
+            # Get KOSPI tickers
+            self.logger.info("Fetching KOSPI tickers...")
+            kospi_tickers = stock.get_market_ticker_list(market="KOSPI")
+            self.logger.info(f"Found {len(kospi_tickers)} KOSPI tickers")
+            
+            # Get KOSDAQ tickers
+            self.logger.info("Fetching KOSDAQ tickers...")
+            kosdaq_tickers = stock.get_market_ticker_list(market="KOSDAQ")
+            self.logger.info(f"Found {len(kosdaq_tickers)} KOSDAQ tickers")
+            
+            # Process KOSPI tickers
+            for ticker in kospi_tickers:
                 try:
                     # Get stock name
                     name = stock.get_market_ticker_name(ticker)
                     
-                    # Determine market based on ticker pattern
-                    # KOSPI typically has codes starting with 0, KOSDAQ with other numbers
-                    market = "KOSPI" if ticker.startswith('0') else "KOSDAQ"
-                    
-                    # Handle tickers with letters (like 00104K, 37550L, etc.)
-                    # These are typically bond codes or special instruments, not regular stocks
-                    if any(char.isalpha() for char in ticker):
-                        continue  # Skip non-numeric tickers
-                    
                     company_info = {
-                        'stock_code': int(ticker),
-                        'stock_market': market,
+                        'stock_code': ticker,  # Keep as string to accommodate non-numeric tickers
+                        'stock_market': 'KOSPI',
                         'company_name': name
                     }
                     companies.append(company_info)
                     
                 except Exception as e:
-                    self.logger.warning(f"Error getting info for ticker {ticker}: {e}")
+                    self.logger.warning(f"Error getting info for KOSPI ticker {ticker}: {e}")
                     continue
             
-            self.logger.info(f"Retrieved {len(companies)} companies from pykrx")
+            # Process KOSDAQ tickers
+            for ticker in kosdaq_tickers:
+                try:
+                    # Get stock name
+                    name = stock.get_market_ticker_name(ticker)
+                    
+                    company_info = {
+                        'stock_code': ticker,  # Keep as string to accommodate non-numeric tickers
+                        'stock_market': 'KOSDAQ',
+                        'company_name': name
+                    }
+                    companies.append(company_info)
+                    
+                except Exception as e:
+                    self.logger.warning(f"Error getting info for KOSDAQ ticker {ticker}: {e}")
+                    continue
+            
+            self.logger.info(f"Retrieved {len(companies)} companies from pykrx (KOSPI + KOSDAQ)")
             return companies
             
         except Exception as e:
@@ -214,12 +275,17 @@ class KRStockCodeCollector:
     def collect_and_update_stock_codes(self) -> bool:
         """
         Collect all stock codes and update the database.
+        This method ensures no duplicate rows are created by properly updating existing records.
         
         Returns:
             True if successful, False otherwise
         """
         try:
             self.logger.info("Starting stock code collection and update")
+            
+            # First, cleanup any existing duplicates
+            self.logger.info("Checking for existing duplicates...")
+            removed_duplicates = self.cleanup_duplicates()
             
             # Get all stock codes from pykrx
             companies = self.get_all_stock_codes_from_pykrx()
@@ -230,13 +296,19 @@ class KRStockCodeCollector:
             
             session = self.SessionLocal()
             
+            # Track statistics
+            updated_count = 0
+            created_count = 0
+            error_count = 0
+            
             # Process each company
             for i, company in enumerate(companies):
                 try:
                     stock_code = company['stock_code']
                     stock_market = company['stock_market']
                     
-                    self.logger.info(f"Processing {i+1}/{len(companies)}: {stock_code} ({stock_market})")
+                    if (i + 1) % 100 == 0:
+                        self.logger.info(f"Processing {i+1}/{len(companies)}: {stock_code} ({stock_market})")
                     
                     # Check if record already exists
                     existing_record = session.query(KRStockCode).filter(
@@ -244,18 +316,30 @@ class KRStockCodeCollector:
                     ).first()
                     
                     if existing_record:
-                        # Update existing record
-                        existing_record.stock_market = stock_market
-                        existing_record.updated_at = datetime.now().date()
+                        # Update existing record - only update fields that might have changed
+                        updated = False
+                        
+                        # Update market if different
+                        if existing_record.stock_market != stock_market:
+                            existing_record.stock_market = stock_market
+                            updated = True
                         
                         # Check delisting status
                         delisting_date = self.check_if_delisted(str(stock_code))
-                        if delisting_date:
+                        if delisting_date != existing_record.delisting_date:
                             existing_record.delisting_date = delisting_date
                             existing_record.is_active = False
-                        else:
+                            updated = True
+                        elif delisting_date is None and not existing_record.is_active:
+                            # Stock is active again (was delisted but now has recent data)
                             existing_record.delisting_date = None
                             existing_record.is_active = True
+                            updated = True
+                        
+                        # Update timestamp if any changes were made
+                        if updated:
+                            existing_record.updated_at = datetime.now().date()
+                            updated_count += 1
                             
                     else:
                         # Create new record
@@ -276,27 +360,31 @@ class KRStockCodeCollector:
                             updated_at=datetime.now().date()
                         )
                         session.add(new_record)
+                        created_count += 1
                     
                     # Commit every 100 records to avoid long transactions
                     if (i + 1) % 100 == 0:
                         session.commit()
-                        self.logger.info(f"Committed {i + 1} records")
+                        self.logger.info(f"Committed {i + 1} records (Created: {created_count}, Updated: {updated_count}, Errors: {error_count})")
                     
                 except Exception as e:
                     self.logger.error(f"Error processing stock code {company.get('stock_code', 'Unknown')}: {e}")
+                    error_count += 1
                     continue
             
             # Final commit
             session.commit()
             session.close()
             
-            self.logger.info("Stock code collection and update completed successfully")
+            self.logger.info(f"Stock code collection and update completed successfully")
+            self.logger.info(f"Final statistics - Created: {created_count}, Updated: {updated_count}, Errors: {error_count}, Total processed: {len(companies)}")
             return True
             
         except Exception as e:
             self.logger.error(f"Error in stock code collection: {e}")
-            session.rollback()
-            session.close()
+            if 'session' in locals():
+                session.rollback()
+                session.close()
             return False
     
     def get_stock_codes_from_db(self, market: str = None, active_only: bool = True) -> pd.DataFrame:
@@ -479,6 +567,11 @@ def collect_kr_stock_codes(database_url: str = None) -> bool:
     """Collect and update Korean stock codes."""
     collector = KRStockCodeCollector(database_url)
     return collector.collect_and_update_stock_codes()
+
+def cleanup_kr_stock_codes_duplicates(database_url: str = None) -> int:
+    """Clean up duplicate Korean stock codes from database."""
+    collector = KRStockCodeCollector(database_url)
+    return collector.cleanup_duplicates()
 
 def get_kr_stock_codes(market: str = None, active_only: bool = True, database_url: str = None) -> pd.DataFrame:
     """Get Korean stock codes from database."""

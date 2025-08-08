@@ -17,30 +17,31 @@ logger = logging.getLogger(__name__)
 
 # Create SQLAlchemy engine
 def create_database_engine():
-    """Create and configure the database engine."""
-    try:
-        if settings.environment == "test":
-            # Use in-memory SQLite for testing
-            engine = create_engine(
-                "sqlite:///:memory:",
-                connect_args={"check_same_thread": False},
-                poolclass=StaticPool,
-                echo=settings.debug
-            )
-        else:
-            # Use configured database URL
-            engine = create_engine(
-                settings.database_url,
-                echo=settings.debug,
-                pool_pre_ping=True,
-                pool_recycle=300
-            )
+    """Create database engine based on configuration."""
+    if settings.debug:
+        # Use SQLite for development
+        database_url = "sqlite:///./korean_stocks.db"
+        engine = create_engine(
+            database_url,
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+            echo=True
+        )
+        logger.info("Using SQLite database for development")
+    else:
+        # Use PostgreSQL for production
+        if not settings.database_url:
+            raise ValueError("DATABASE_URL must be set for production")
         
-        logger.info(f"Database engine created successfully for environment: {settings.environment}")
-        return engine
-    except Exception as e:
-        logger.error(f"Failed to create database engine: {e}")
-        raise
+        engine = create_engine(
+            settings.database_url,
+            pool_pre_ping=True,
+            pool_recycle=300,
+            echo=settings.debug
+        )
+        logger.info("Using PostgreSQL database for production")
+    
+    return engine
 
 # Create engine instance
 engine = create_database_engine()
@@ -52,38 +53,52 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 def get_db() -> Generator[Session, None, None]:
-    """
-    Dependency function to get database session.
-    Yields a database session and ensures it's closed after use.
-    """
+    """Dependency to get database session."""
     db = SessionLocal()
     try:
         yield db
-    except Exception as e:
-        logger.error(f"Database session error: {e}")
-        db.rollback()
-        raise
     finally:
         db.close()
 
 def init_db():
-    """Initialize the database by creating all tables."""
+    """Initialize database tables."""
     try:
-        # Import all models here to ensure they're registered
-        from src.database import models
+        # Import all models to ensure they are registered
+        from src.data_collection.korean_stocks import KoreanStock
         
         # Create all tables
         Base.metadata.create_all(bind=engine)
-        logger.info("Database initialized successfully")
+        logger.info("Database tables created successfully")
     except Exception as e:
-        logger.error(f"Failed to initialize database: {e}")
+        logger.error(f"Error initializing database: {e}")
         raise
 
 def close_db():
-    """Close the database engine."""
+    """Close database connections."""
     try:
         engine.dispose()
-        logger.info("Database engine closed successfully")
+        logger.info("Database connections closed")
     except Exception as e:
-        logger.error(f"Failed to close database engine: {e}")
-        raise 
+        logger.error(f"Error closing database: {e}")
+
+# Korean stocks specific database functions
+def get_korean_stocks_db_url() -> str:
+    """Get database URL for Korean stocks data."""
+    if settings.debug:
+        return "sqlite:///./korean_stocks.db"
+    else:
+        # Use a separate database for Korean stocks data
+        return settings.database_url.replace("/invest", "/korean_stocks") if settings.database_url else None
+
+def create_korean_stocks_engine():
+    """Create engine specifically for Korean stocks data."""
+    database_url = get_korean_stocks_db_url()
+    if not database_url:
+        raise ValueError("Database URL not configured")
+    
+    return create_engine(
+        database_url,
+        pool_pre_ping=True,
+        pool_recycle=300,
+        echo=settings.debug
+    ) 

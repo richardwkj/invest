@@ -1,0 +1,53 @@
+2025-08-08 17:33:51 | INFO     | src.utils.logger:setup_logging:85 | Logging configured with level: INFO
+2025-08-08 17:33:51 | INFO     | src.utils.logger:setup_logging:87 | Log file: ./logs/app.log
+2025-08-08 17:33:51 | INFO     | data_collection.korean_stocks:__init__:60 | Korean Stock Collector initialized with DART API and PostgreSQL
+2025-08-08 17:33:51 | INFO     | data_collection.korean_stocks:_create_tables:90 | Database tables created successfully
+2025-08-08 17:33:51 | INFO     | data_collection.korean_stocks:get_all_stock_codes_from_dart:119 | Fetching all stock codes from DART API
+2025-08-08 17:33:51 | ERROR    | data_collection.korean_stocks:get_all_stock_codes_from_dart:141 | DART API error: 필수값(corp_code)이 누락되었습니다.
+2025-08-08 17:35:12 | INFO     | src.utils.logger:setup_logging:85 | Logging configured with level: INFO
+2025-08-08 17:35:12 | INFO     | src.utils.logger:setup_logging:87 | Log file: ./logs/app.log
+2025-08-08 17:35:12 | INFO     | data_collection.korean_stocks:__init__:60 | Korean Stock Collector initialized with DART API and PostgreSQL
+2025-08-08 17:35:12 | INFO     | data_collection.korean_stocks:_create_tables:90 | Database tables created successfully
+2025-08-08 17:35:12 | INFO     | data_collection.korean_stocks:get_all_stock_codes_from_dart:119 | Fetching all stock codes from DART API
+2025-08-08 17:35:13 | ERROR    | data_collection.korean_stocks:get_all_stock_codes_from_dart:148 | DART API error: 필수값(corp_code)이 누락되었습니다.
+2025-08-08 17:40:45 | INFO     | src.utils.logger:setup_logging:85 | Logging configured with level: INFO
+2025-08-08 17:40:45 | INFO     | src.utils.logger:setup_logging:87 | Log file: ./logs/app.log
+2025-08-08 17:40:45 | INFO     | data_collection.korean_stocks:__init__:63 | Korean Stock Collector initialized with pykrx and PostgreSQL
+2025-08-08 17:40:45 | INFO     | data_collection.korean_stocks:_create_tables:89 | Database tables created successfully
+2025-08-08 17:40:45 | INFO     | data_collection.korean_stocks:get_all_stock_codes_from_pykrx:118 | Fetching all stock codes from pykrx
+2025-08-08 17:40:50 | INFO     | data_collection.korean_stocks:get_all_stock_codes_from_pykrx:149 | Retrieved 962 companies from pykrx
+2025-08-08 17:40:50 | INFO     | data_collection.korean_stocks:get_stock_data_with_max_history:234 | Fetching max historical data for 095570 (KOSPI)
+2025-08-08 17:40:52 | INFO     | data_collection.korean_stocks:get_stock_data_with_max_history:275 | Retrieved 2443 records for 095570 (KOSPI)
+2025-08-08 17:40:54 | INFO     | data_collection.korean_stocks:save_stock_data_to_db:394 | Saved 2443 records to database
+2025-08-08 17:40:54 | INFO     | data_collection.korean_stocks:get_stock_data_from_db:462 | Retrieved 2443 records from database
+2025-08-08 17:49:05 | INFO     | src.utils.logger:setup_logging:85 | Logging configured with level: INFO
+2025-08-08 17:49:05 | INFO     | src.utils.logger:setup_logging:87 | Log file: ./logs/app.log
+2025-08-08 17:49:05 | INFO     | data_collection.kr_stock_codes:__init__:51 | KR Stock Code Collector initialized
+2025-08-08 17:49:05 | INFO     | data_collection.kr_stock_codes:_create_tables:70 | Database tables created successfully
+2025-08-08 17:49:05 | INFO     | data_collection.kr_stock_codes:get_all_stock_codes_from_pykrx:83 | Fetching all stock codes from pykrx
+2025-08-08 17:49:09 | WARNING  | data_collection.kr_stock_codes:get_all_stock_codes_from_pykrx:111 | Error getting info for ticker 00104K: invalid literal for int() with base 10: '00104K'
+2025-08-08 17:49:09 | WARNING  | data_collection.kr_stock_codes:get_all_stock_codes_from_pykrx:111 | Error getting info for ticker 37550L: invalid literal for int() with base 10: '37550L'
+2025-08-08 17:49:09 | WARNING  | data_collection.kr_stock_codes:get_all_stock_codes_from_pykrx:111 | Error getting info for ticker 37550K: invalid literal for int() with base 10: '37550K'
+2025-08-08 17:49:09 | WARNING  | data_collection.kr_stock_codes:get_all_stock_codes_from_pykrx:111 | Error getting info for ticker 38380K: invalid literal for int() with base 10: '38380K'
+2025-08-08 17:49:09 | WARNING  | data_collection.kr_stock_codes:get_all_stock_codes_from_pykrx:111 | Error getting info for ticker 03473K: invalid literal for int() with base 10: '03473K'
+2025-08-08 17:49:09 | WARNING  | data_collection.kr_stock_codes:get_all_stock_codes_from_pykrx:111 | Error getting info for ticker 28513K: invalid literal for int() with base 10: '28513K'
+2025-08-08 17:49:09 | WARNING  | data_collection.kr_stock_codes:get_all_stock_codes_from_pykrx:111 | Error getting info for ticker 00806K: invalid literal for int() with base 10: '00806K'
+2025-08-08 17:49:09 | WARNING  | data_collection.kr_stock_codes:get_all_stock_codes_from_pykrx:111 | Error getting info for ticker 35320K: invalid literal for int() with base 10: '35320K'
+2025-08-08 17:49:09 | WARNING  | data_collection.kr_stock_codes:get_all_stock_codes_from_pykrx:111 | Error getting info for ticker 0030R0: invalid literal for int() with base 10: '0030R0'
+2025-08-08 17:49:09 | WARNING  | data_collection.kr_stock_codes:get_all_stock_codes_from_pykrx:111 | Error getting info for ticker 33626K: invalid literal for int() with base 10: '33626K'
+2025-08-08 17:49:09 | WARNING  | data_collection.kr_stock_codes:get_all_stock_codes_from_pykrx:111 | Error getting info for ticker 33626L: invalid literal for int() with base 10: '33626L'
+2025-08-08 17:49:09 | WARNING  | data_collection.kr_stock_codes:get_all_stock_codes_from_pykrx:111 | Error getting info for ticker 00499K: invalid literal for int() with base 10: '00499K'
+2025-08-08 17:49:09 | WARNING  | data_collection.kr_stock_codes:get_all_stock_codes_from_pykrx:111 | Error getting info for ticker 00680K: invalid literal for int() with base 10: '00680K'
+2025-08-08 17:49:09 | WARNING  | data_collection.kr_stock_codes:get_all_stock_codes_from_pykrx:111 | Error getting info for ticker 02826K: invalid literal for int() with base 10: '02826K'
+2025-08-08 17:49:09 | WARNING  | data_collection.kr_stock_codes:get_all_stock_codes_from_pykrx:111 | Error getting info for ticker 33637K: invalid literal for int() with base 10: '33637K'
+2025-08-08 17:49:09 | WARNING  | data_collection.kr_stock_codes:get_all_stock_codes_from_pykrx:111 | Error getting info for ticker 33637L: invalid literal for int() with base 10: '33637L'
+2025-08-08 17:49:09 | WARNING  | data_collection.kr_stock_codes:get_all_stock_codes_from_pykrx:111 | Error getting info for ticker 00279K: invalid literal for int() with base 10: '00279K'
+2025-08-08 17:49:09 | WARNING  | data_collection.kr_stock_codes:get_all_stock_codes_from_pykrx:111 | Error getting info for ticker 00781K: invalid literal for int() with base 10: '00781K'
+2025-08-08 17:49:09 | WARNING  | data_collection.kr_stock_codes:get_all_stock_codes_from_pykrx:111 | Error getting info for ticker 45014K: invalid literal for int() with base 10: '45014K'
+2025-08-08 17:49:09 | WARNING  | data_collection.kr_stock_codes:get_all_stock_codes_from_pykrx:111 | Error getting info for ticker 26490K: invalid literal for int() with base 10: '26490K'
+2025-08-08 17:49:09 | WARNING  | data_collection.kr_stock_codes:get_all_stock_codes_from_pykrx:111 | Error getting info for ticker 36328K: invalid literal for int() with base 10: '36328K'
+2025-08-08 17:49:09 | WARNING  | data_collection.kr_stock_codes:get_all_stock_codes_from_pykrx:111 | Error getting info for ticker 18064K: invalid literal for int() with base 10: '18064K'
+2025-08-08 17:49:09 | WARNING  | data_collection.kr_stock_codes:get_all_stock_codes_from_pykrx:111 | Error getting info for ticker 00088K: invalid literal for int() with base 10: '00088K'
+2025-08-08 17:49:09 | WARNING  | data_collection.kr_stock_codes:get_all_stock_codes_from_pykrx:111 | Error getting info for ticker 45226K: invalid literal for int() with base 10: '45226K'
+2025-08-08 17:49:09 | INFO     | data_collection.kr_stock_codes:get_all_stock_codes_from_pykrx:114 | Retrieved 938 companies from pykrx
+2025-08-08 17:49:10 | INFO     | data_collection.kr_stock_codes:get_stock_codes_from_db:327 | Retrieved 2 stock codes from database

@@ -9,11 +9,22 @@ from pathlib import Path
 import os
 from datetime import datetime
 
-# Add the src directory to the Python path
+# Add the src and root directories to the Python path
 sys.path.append(str(Path(__file__).parent.parent / "src"))
+sys.path.append(str(Path(__file__).parent.parent))
 
 from data_collection.kr_stock_codes import KRStockCodeCollector, collect_kr_stock_codes, get_kr_stock_statistics
-from config.settings import settings
+
+# Try to import settings, but use defaults if not available
+try:
+    from config.settings import settings
+except ImportError:
+    # Create a simple settings object if config is not available
+    class SimpleSettings:
+        debug = True
+        database_url = None
+    
+    settings = SimpleSettings()
 
 def main():
     """Main function to run Korean stock codes collection."""
@@ -47,8 +58,10 @@ def main():
         print("🔧 Initializing KR Stock Code Collector...")
         
         if settings.debug:
-            # Use SQLite for development
-            database_url = "sqlite:///./kr_stock_codes.db"
+            # Use SQLite for development - save to data/raw/korean_stocks
+            data_dir = Path("data/raw/korean_stocks")
+            data_dir.mkdir(parents=True, exist_ok=True)
+            database_url = f"sqlite:///{data_dir}/kr_stock_codes.db"
         else:
             # Use PostgreSQL for production
             database_url = settings.database_url
@@ -108,20 +121,16 @@ def main():
                 if stats.get('latest_ipo'):
                     print(f"   Latest IPO: {stats['latest_ipo']}")
             
-            # Save summary to CSV
-            print("\n💾 Saving summary to CSV...")
-            stock_codes_df = collector.get_stock_codes_from_db(active_only=False)
+            # Save all data formats to data/raw/korean_stocks directory
+            print("\n💾 Saving data to CSV files...")
+            saved_files = collector.save_all_formats()
             
-            if not stock_codes_df.empty:
-                summary_file = f"kr_stock_codes_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-                stock_codes_df.to_csv(summary_file, index=False, encoding='utf-8-sig')
-                print(f"   Summary saved to: {summary_file}")
-                
-                # Also save active stocks only
-                active_stocks_df = collector.get_stock_codes_from_db(active_only=True)
-                active_file = f"kr_active_stock_codes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-                active_stocks_df.to_csv(active_file, index=False, encoding='utf-8-sig')
-                print(f"   Active stocks saved to: {active_file}")
+            if saved_files:
+                print("   Files saved:")
+                for file_type, file_path in saved_files.items():
+                    print(f"     - {file_type}: {file_path}")
+            else:
+                print("   No files saved")
             
             print(f"\n📋 Database Table: kr_stock_codes")
             print(f"   Columns: stock_code, stock_market, ipo_date, delisting_date, is_active")

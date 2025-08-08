@@ -19,7 +19,13 @@ from sqlalchemy.exc import SQLAlchemyError
 # pykrx for Korean stock data
 from pykrx import stock
 
-from src.utils.logger import get_logger
+import sys
+from pathlib import Path
+
+# Add the src directory to the Python path
+sys.path.append(str(Path(__file__).parent.parent))
+
+from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -54,8 +60,11 @@ class KRStockCodeCollector:
         if database_url:
             self.database_url = database_url
         else:
-            # Default SQLite connection
-            self.database_url = "sqlite:///./kr_stock_codes.db"
+            # Default SQLite connection - save to data/raw/korean_stocks directory
+            data_dir = Path("data/raw/korean_stocks")
+            data_dir.mkdir(parents=True, exist_ok=True)
+            db_path = data_dir / "kr_stock_codes.db"
+            self.database_url = f"sqlite:///{db_path}"
         
         self.engine = create_engine(self.database_url)
         self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
@@ -375,6 +384,94 @@ class KRStockCodeCollector:
         except Exception as e:
             self.logger.error(f"Error getting statistics: {e}")
             return {}
+    
+    def save_to_csv(self, market: str = None, active_only: bool = True, filename: str = None) -> str:
+        """
+        Save stock codes data to CSV file in the data/raw/korean_stocks directory.
+        
+        Args:
+            market: Filter by market (KOSPI or KOSDAQ)
+            active_only: If True, only save active (non-delisted) stocks
+            filename: Custom filename (optional)
+            
+        Returns:
+            Path to the saved CSV file
+        """
+        try:
+            # Get data from database
+            df = self.get_stock_codes_from_db(market, active_only)
+            
+            if df.empty:
+                self.logger.warning("No data to save to CSV")
+                return ""
+            
+            # Create data directory if it doesn't exist
+            data_dir = Path("data/raw/korean_stocks")
+            data_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Generate filename if not provided
+            if not filename:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                market_suffix = f"_{market}" if market else ""
+                active_suffix = "_active" if active_only else "_all"
+                filename = f"kr_stock_codes{market_suffix}{active_suffix}_{timestamp}.csv"
+            
+            # Save to CSV
+            csv_path = data_dir / filename
+            df.to_csv(csv_path, index=False, encoding='utf-8-sig')
+            
+            self.logger.info(f"Data saved to CSV: {csv_path}")
+            return str(csv_path)
+            
+        except Exception as e:
+            self.logger.error(f"Error saving to CSV: {e}")
+            return ""
+    
+    def save_all_formats(self) -> Dict[str, str]:
+        """
+        Save stock codes data in multiple formats to data/raw/korean_stocks directory.
+        
+        Returns:
+            Dictionary with paths to saved files
+        """
+        try:
+            saved_files = {}
+            
+            # Save all stocks (active + delisted)
+            all_stocks_path = self.save_to_csv(active_only=False, filename="kr_stock_codes_all.csv")
+            if all_stocks_path:
+                saved_files['all_stocks'] = all_stocks_path
+            
+            # Save active stocks only
+            active_stocks_path = self.save_to_csv(active_only=True, filename="kr_stock_codes_active.csv")
+            if active_stocks_path:
+                saved_files['active_stocks'] = active_stocks_path
+            
+            # Save KOSPI stocks
+            kospi_path = self.save_to_csv(market="KOSPI", filename="kr_stock_codes_kospi.csv")
+            if kospi_path:
+                saved_files['kospi_stocks'] = kospi_path
+            
+            # Save KOSDAQ stocks
+            kosdaq_path = self.save_to_csv(market="KOSDAQ", filename="kr_stock_codes_kosdaq.csv")
+            if kosdaq_path:
+                saved_files['kosdaq_stocks'] = kosdaq_path
+            
+            # Save statistics
+            stats = self.get_statistics()
+            if stats:
+                stats_df = pd.DataFrame([stats])
+                data_dir = Path("data/raw/korean_stocks")
+                stats_path = data_dir / "kr_stock_codes_statistics.csv"
+                stats_df.to_csv(stats_path, index=False, encoding='utf-8-sig')
+                saved_files['statistics'] = str(stats_path)
+            
+            self.logger.info(f"All data saved to: {data_dir}")
+            return saved_files
+            
+        except Exception as e:
+            self.logger.error(f"Error saving all formats: {e}")
+            return {}
 
 
 # Convenience functions
@@ -392,3 +489,14 @@ def get_kr_stock_statistics(database_url: str = None) -> Dict[str, Any]:
     """Get statistics about Korean stock codes."""
     collector = KRStockCodeCollector(database_url)
     return collector.get_statistics()
+
+def save_kr_stock_codes_to_csv(market: str = None, active_only: bool = True, 
+                              filename: str = None, database_url: str = None) -> str:
+    """Save Korean stock codes to CSV file."""
+    collector = KRStockCodeCollector(database_url)
+    return collector.save_to_csv(market, active_only, filename)
+
+def save_kr_stock_codes_all_formats(database_url: str = None) -> Dict[str, str]:
+    """Save Korean stock codes in all formats (CSV files)."""
+    collector = KRStockCodeCollector(database_url)
+    return collector.save_all_formats()

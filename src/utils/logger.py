@@ -9,7 +9,17 @@ from pathlib import Path
 from loguru import logger
 from typing import Optional
 
-from config.settings import settings
+# Try to import settings, but don't fail if not available
+try:
+    from config.settings import settings
+except ImportError:
+    # Create a simple settings object if config is not available
+    class SimpleSettings:
+        debug = True
+        log_level = "INFO"
+        log_file = None
+    
+    settings = SimpleSettings()
 
 
 class InterceptHandler(logging.Handler):

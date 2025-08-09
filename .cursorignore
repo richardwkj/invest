@@ -1,0 +1,15 @@
+# Exclude data directory to prevent overloading context window
+data/
+
+# Common patterns you might want to add later:
+# node_modules/
+# *.log
+# *.tmp
+# dist/
+# build/
+# coverage/
+# .env
+# *.pyc
+# __pycache__/
+# venv/
+# .venv/

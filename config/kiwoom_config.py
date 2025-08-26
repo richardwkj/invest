@@ -6,14 +6,10 @@ This file contains Kiwoom API credentials and configuration settings.
 import os
 from typing import Optional
 
-# Import from environment configuration
-try:
-    from .environment import KIWOOM_APP_KEY, KIWOOM_SECRET_KEY, KIWOOM_USE_TEST_SERVER
-except ImportError:
-    # Fallback to environment variables
-    KIWOOM_APP_KEY = os.getenv('KIWOOM_APP_KEY', 'U3ThWWKkTyEMSP-XX8l80bp2ulbc8HVIOWyJvAyGAHA')
-    KIWOOM_SECRET_KEY = os.getenv('KIWOOM_SECRET_KEY', 'yQWeiWlkEQmyE_QEHB0zqW7Mbc2SPt6IuAE1yiyZQvQ')
-    KIWOOM_USE_TEST_SERVER = os.getenv('KIWOOM_USE_TEST_SERVER', 'true').lower() == 'true'
+# Kiwoom API Configuration
+KIWOOM_APP_KEY = os.getenv('KIWOOM_APP_KEY', 'U3ThWWKkTyEMSP-XX8l80bp2ulbc8HVIOWyJvAyGAHA')
+KIWOOM_SECRET_KEY = os.getenv('KIWOOM_SECRET_KEY', 'yQWeiWlkEQmyE_QEHB0zqW7Mbc2SPt6IuAE1yiyZQvQ')
+KIWOOM_USE_TEST_SERVER = os.getenv('KIWOOM_USE_TEST_SERVER', 'true').lower() == 'true'
 
 # API Endpoints
 KIWOOM_TEST_HOST = 'https://mockapi.kiwoom.com'

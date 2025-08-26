@@ -1,6 +1,6 @@
 """
-Korean Stock Codes Collection and Management Script.
-This module creates and maintains a table of all Korean stock codes with IPO and delisting dates.
+Korean Stock Symbols Collection and Management Script.
+This module creates and maintains a table of all Korean stock symbols with company names, IPO and delisting dates.
 """
 
 import pandas as pd
@@ -11,7 +11,7 @@ import logging
 from pathlib import Path
 
 # Database imports
-from sqlalchemy import create_engine, Column, String, Date, Integer, Boolean
+from sqlalchemy import create_engine, Column, String, Date, Integer, Boolean, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
@@ -19,13 +19,7 @@ from sqlalchemy.exc import SQLAlchemyError
 # pykrx for Korean stock data
 from pykrx import stock
 
-import sys
-from pathlib import Path
-
-# Add the src directory to the Python path
-sys.path.append(str(Path(__file__).parent.parent))
-
-from utils.logger import get_logger
+from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -37,8 +31,9 @@ class KRStockCode(Base):
     __tablename__ = 'kr_stock_codes'
     
     id = Column(Integer, primary_key=True, autoincrement=True)
-    stock_code = Column(String(10), nullable=False, unique=True, index=True)  # Changed to String to accommodate non-numeric tickers
+    stock_symbol = Column(String(10), nullable=False, unique=True, index=True)  # Renamed from stock_code to stock_symbol
     stock_market = Column(String(10), nullable=False)  # KOSPI or KOSDAQ
+    company_name = Column(String(200), nullable=True)  # New column for company names
     ipo_date = Column(Date, nullable=True)
     delisting_date = Column(Date, nullable=True)
     is_active = Column(Boolean, default=True)
@@ -48,25 +43,31 @@ class KRStockCode(Base):
 
 class KRStockCodeCollector:
     """
-    Collects and maintains Korean stock codes with IPO and delisting information.
+    Collects and maintains Korean stock symbols with company names, IPO and delisting information.
     """
     
     def __init__(self, database_url: str = None):
-        """Initialize the Korean stock code collector."""
+        """Initialize the Korean stock symbol collector."""
         self.logger = logger
-        self.logger.info("KR Stock Code Collector initialized")
+        self.logger.info("KR Stock Symbol Collector initialized")
         
         # Database setup
         if database_url:
             self.database_url = database_url
         else:
-            # Default SQLite connection - save to data/raw/korean_stocks directory
-            data_dir = Path("data/raw/korean_stocks")
-            data_dir.mkdir(parents=True, exist_ok=True)
-            db_path = data_dir / "kr_stock_codes.db"
-            self.database_url = f"sqlite:///{db_path}"
+            # Default PostgreSQL connection
+            self.database_url = "postgresql://username:password@localhost:5432/kr_stock_symbols"
+            self.logger.warning("Using default PostgreSQL connection. Set database_url parameter for custom connection.")
         
-        self.engine = create_engine(self.database_url)
+        # Create PostgreSQL engine with connection pooling
+        self.engine = create_engine(
+            self.database_url,
+            pool_size=10,
+            max_overflow=20,
+            pool_pre_ping=True,
+            pool_recycle=3600,
+            echo=False  # Set to True for SQL debugging
+        )
         self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
         
         # Create tables
@@ -75,15 +76,212 @@ class KRStockCodeCollector:
     def _create_tables(self):
         """Create database tables if they don't exist."""
         try:
+            # Create database if it doesn't exist
+            self.create_database_if_not_exists()
+            
+            # Test database connection
+            self._test_connection()
+            
+            # Create tables
             Base.metadata.create_all(bind=self.engine)
+            
+            # Create additional indexes for database performance
+            self._create_database_indexes()
+            
             self.logger.info("Database tables created successfully")
         except SQLAlchemyError as e:
             self.logger.error(f"Error creating database tables: {e}")
             raise
     
+    def _test_connection(self):
+        """Test database connection."""
+        try:
+            with self.engine.connect() as connection:
+                if 'sqlite' in self.database_url.lower():
+                    # SQLite connection test
+                    result = connection.execute(text("SELECT sqlite_version();"))
+                    version = result.fetchone()[0]
+                    self.logger.info(f"SQLite connection successful. Version: {version}")
+                else:
+                    # PostgreSQL connection test
+                    result = connection.execute(text("SELECT version();"))
+                    version = result.fetchone()[0]
+                    self.logger.info(f"PostgreSQL connection successful. Version: {version}")
+        except Exception as e:
+            self.logger.error(f"Database connection failed: {e}")
+            if 'sqlite' in self.database_url.lower():
+                self.logger.error("SQLite connection failed. Check file permissions and path.")
+            else:
+                self.logger.error("PostgreSQL connection failed. Please ensure PostgreSQL is running and accessible")
+                self.logger.error("Check your database_url or set up PostgreSQL with:")
+                self.logger.error("  - Database: kr_stock_symbols")
+                self.logger.error("  - User: username (with appropriate permissions)")
+                self.logger.error("  - Password: password")
+            raise
+    
+    def get_database_info(self) -> Dict[str, Any]:
+        """Get database connection information."""
+        try:
+            with self.engine.connect() as connection:
+                if 'sqlite' in self.database_url.lower():
+                    # SQLite database info
+                    result = connection.execute(text("SELECT sqlite_version();"))
+                    version = result.fetchone()[0]
+                    
+                    # Get database file path
+                    db_path = self.database_url.replace('sqlite:///', '')
+                    
+                    return {
+                        'database_type': 'SQLite',
+                        'database_path': db_path,
+                        'server_version': version,
+                        'connection_url': self.database_url
+                    }
+                else:
+                    # PostgreSQL database info
+                    # Get database name
+                    result = connection.execute(text("SELECT current_database();"))
+                    db_name = result.fetchone()[0]
+                    
+                    # Get current user
+                    result = connection.execute(text("SELECT current_user;"))
+                    current_user = result.fetchone()[0]
+                    
+                    # Get server version
+                    result = connection.execute(text("SELECT version();"))
+                    version = result.fetchone()[0]
+                    
+                    # Get connection count
+                    result = connection.execute(text("SELECT count(*) FROM pg_stat_activity WHERE datname = current_database();"))
+                    active_connections = result.fetchone()[0]
+                    
+                    return {
+                        'database_type': 'PostgreSQL',
+                        'database_name': db_name,
+                        'current_user': current_user,
+                        'server_version': version,
+                        'active_connections': active_connections,
+                        'connection_url': self.database_url.replace(self.database_url.split('@')[0].split('//')[1].split(':')[1], '***') if '@' in self.database_url else self.database_url
+                    }
+        except Exception as e:
+            self.logger.error(f"Error getting database info: {e}")
+            return {}
+    
+    def create_database_if_not_exists(self) -> bool:
+        """Create the database if it doesn't exist."""
+        try:
+            if 'sqlite' in self.database_url.lower():
+                # For SQLite, just ensure the directory exists
+                from pathlib import Path
+                db_path = Path(self.database_url.replace('sqlite:///', ''))
+                db_path.parent.mkdir(parents=True, exist_ok=True)
+                self.logger.info(f"SQLite database directory ensured: {db_path.parent}")
+                return True
+            else:
+                # PostgreSQL database creation
+                # Parse the connection URL to get database name
+                from urllib.parse import urlparse
+                parsed = urlparse(self.database_url)
+                db_name = parsed.path.lstrip('/')
+                
+                # Connect to default postgres database to create our database
+                default_url = f"postgresql://{parsed.username}:{parsed.password}@{parsed.hostname}:{parsed.port}/postgres"
+                default_engine = create_engine(default_url)
+                
+                with default_engine.connect() as connection:
+                    # Check if database exists
+                    result = connection.execute(text("SELECT 1 FROM pg_database WHERE datname = %s"), (db_name,))
+                    exists = result.fetchone() is not None
+                    
+                    if not exists:
+                        # Create database
+                        connection.execute(text("COMMIT"))  # Close any open transaction
+                        connection.execute(text(f"CREATE DATABASE {db_name}"))
+                        self.logger.info(f"Database '{db_name}' created successfully")
+                        return True
+                    else:
+                        self.logger.info(f"Database '{db_name}' already exists")
+                        return True
+                        
+        except Exception as e:
+            self.logger.error(f"Error creating database: {e}")
+            return False
+    
+    def _create_database_indexes(self):
+        """Create additional indexes for database performance."""
+        try:
+            with self.engine.connect() as connection:
+                if 'sqlite' in self.database_url.lower():
+                    # SQLite indexes
+                    connection.execute(text("""
+                        CREATE INDEX IF NOT EXISTS idx_kr_stock_codes_market_active 
+                        ON kr_stock_codes(stock_market, is_active)
+                    """))
+                    
+                    connection.execute(text("""
+                        CREATE INDEX IF NOT EXISTS idx_kr_stock_codes_ipo_date 
+                        ON kr_stock_codes(ipo_date)
+                    """))
+                    
+                    connection.execute(text("""
+                        CREATE INDEX IF NOT EXISTS idx_kr_stock_codes_delisting_date 
+                        ON kr_stock_codes(delisting_date)
+                    """))
+                    
+                    self.logger.info("SQLite indexes created successfully")
+                    
+                else:
+                    # PostgreSQL indexes
+                    # Create composite index for market and active status
+                    connection.execute(text("""
+                        CREATE INDEX IF NOT EXISTS idx_kr_stock_codes_market_active 
+                        ON kr_stock_codes(stock_market, is_active)
+                    """))
+                    
+                    # Create index for IPO dates
+                    connection.execute(text("""
+                        CREATE INDEX IF NOT EXISTS idx_kr_stock_codes_ipo_date 
+                        ON kr_stock_codes(ipo_date)
+                    """))
+                    
+                    # Create index for delisting dates
+                    connection.execute(text("""
+                        CREATE INDEX IF NOT EXISTS idx_kr_stock_codes_delisting_date 
+                        ON kr_stock_codes(delisting_date)
+                    """))
+                    
+                    # Create index for company names (for text search)
+                    connection.execute(text("""
+                        CREATE INDEX IF NOT EXISTS idx_kr_stock_codes_company_name 
+                        ON kr_stock_codes(company_name)
+                    """))
+                    
+                    self.logger.info("PostgreSQL indexes created successfully")
+                
+        except Exception as e:
+            self.logger.warning(f"Error creating database indexes: {e}")
+            # Don't fail if indexes can't be created
+    
+    def vacuum_and_analyze(self):
+        """Run database maintenance (VACUUM ANALYZE for PostgreSQL, ANALYZE for SQLite)."""
+        try:
+            with self.engine.connect() as connection:
+                if 'sqlite' in self.database_url.lower():
+                    # SQLite maintenance
+                    connection.execute(text("ANALYZE"))
+                    self.logger.info("SQLite ANALYZE completed successfully")
+                else:
+                    # PostgreSQL maintenance
+                    connection.execute(text("VACUUM ANALYZE kr_stock_codes"))
+                    self.logger.info("PostgreSQL VACUUM ANALYZE completed successfully")
+                
+        except Exception as e:
+            self.logger.warning(f"Error running database maintenance: {e}")
+            # Don't fail if maintenance can't be run
+    
     def cleanup_duplicates(self) -> int:
         """
-        Remove duplicate stock codes from the database, keeping the most recent record.
+        Remove duplicate stock symbols from the database, keeping the most recent record.
         
         Returns:
             Number of duplicate records removed
@@ -91,21 +289,21 @@ class KRStockCodeCollector:
         try:
             session = self.SessionLocal()
             
-            # Find duplicates based on stock_code
-            duplicates = session.query(KRStockCode.stock_code).group_by(
-                KRStockCode.stock_code
+            # Find duplicates based on stock_symbol
+            duplicates = session.query(KRStockCode.stock_symbol).group_by(
+                KRStockCode.stock_symbol
             ).having(
                 session.query(KRStockCode).filter(
-                    KRStockCode.stock_code == KRStockCode.stock_code
+                    KRStockCode.stock_symbol == KRStockCode.stock_symbol
                 ).count() > 1
             ).all()
             
             removed_count = 0
             
-            for (stock_code,) in duplicates:
-                # Get all records for this stock code
+            for (stock_symbol,) in duplicates:
+                # Get all records for this stock symbol
                 records = session.query(KRStockCode).filter(
-                    KRStockCode.stock_code == stock_code
+                    KRStockCode.stock_symbol == stock_symbol
                 ).order_by(KRStockCode.updated_at.desc()).all()
                 
                 # Keep the first (most recent) record, delete the rest
@@ -132,13 +330,13 @@ class KRStockCodeCollector:
     
     def get_all_stock_codes_from_pykrx(self) -> List[Dict[str, Any]]:
         """
-        Get all stock codes from pykrx with basic information.
+        Get all stock symbols from pykrx with company names and market information.
         
         Returns:
             List of dictionaries containing stock information
         """
         try:
-            self.logger.info("Fetching all stock codes from pykrx")
+            self.logger.info("Fetching all stock symbols and company names from pykrx")
             
             companies = []
             
@@ -153,37 +351,69 @@ class KRStockCodeCollector:
             self.logger.info(f"Found {len(kosdaq_tickers)} KOSDAQ tickers")
             
             # Process KOSPI tickers
-            for ticker in kospi_tickers:
+            for i, ticker in enumerate(kospi_tickers):
                 try:
-                    # Get stock name
+                    # Get stock name from pykrx
                     name = stock.get_market_ticker_name(ticker)
                     
+                    # Ensure company name is not empty
+                    if not name or name.strip() == "":
+                        name = f"Unknown Company {ticker}"
+                        self.logger.warning(f"Empty company name for KOSPI ticker {ticker}, using fallback")
+                    
                     company_info = {
-                        'stock_code': ticker,  # Keep as string to accommodate non-numeric tickers
+                        'stock_symbol': ticker,  # Renamed from stock_code to stock_symbol
                         'stock_market': 'KOSPI',
-                        'company_name': name
+                        'company_name': name.strip()
                     }
                     companies.append(company_info)
+                    
+                    # Log progress every 100 companies
+                    if (i + 1) % 100 == 0:
+                        self.logger.info(f"Processed {i + 1}/{len(kospi_tickers)} KOSPI companies")
                     
                 except Exception as e:
                     self.logger.warning(f"Error getting info for KOSPI ticker {ticker}: {e}")
+                    # Add fallback entry with basic info
+                    company_info = {
+                        'stock_symbol': ticker,
+                        'stock_market': 'KOSPI',
+                        'company_name': f"Unknown Company {ticker}"
+                    }
+                    companies.append(company_info)
                     continue
             
             # Process KOSDAQ tickers
-            for ticker in kosdaq_tickers:
+            for i, ticker in enumerate(kosdaq_tickers):
                 try:
-                    # Get stock name
+                    # Get stock name from pykrx
                     name = stock.get_market_ticker_name(ticker)
                     
+                    # Ensure company name is not empty
+                    if not name or name.strip() == "":
+                        name = f"Unknown Company {ticker}"
+                        self.logger.warning(f"Empty company name for KOSDAQ ticker {ticker}, using fallback")
+                    
                     company_info = {
-                        'stock_code': ticker,  # Keep as string to accommodate non-numeric tickers
+                        'stock_symbol': ticker,  # Renamed from stock_code to stock_symbol
                         'stock_market': 'KOSDAQ',
-                        'company_name': name
+                        'company_name': name.strip()
                     }
                     companies.append(company_info)
                     
+                    # Log progress every 100 companies
+                    if (i + 1) % 100 == 0:
+                        self.logger.info(f"Processed {i + 1}/{len(kosdaq_tickers)} KOSDAQ companies")
+                    
                 except Exception as e:
                     self.logger.warning(f"Error getting info for KOSDAQ ticker {ticker}: {e}")
+                    # Add fallback entry with basic info
+                    company_info = {
+                        'stock_symbol': ticker,
+                        'stock_market': 'KOSDAQ',
+                        'company_name': f"Unknown Company {ticker}"
+                    }
+                    companies.append(company_info)
                     continue
             
             self.logger.info(f"Retrieved {len(companies)} companies from pykrx (KOSPI + KOSDAQ)")
@@ -193,12 +423,12 @@ class KRStockCodeCollector:
             self.logger.error(f"Error fetching data from pykrx: {e}")
             return []
     
-    def get_ipo_date_from_pykrx(self, stock_code: str) -> Optional[datetime]:
+    def get_ipo_date_from_pykrx(self, stock_symbol: str) -> Optional[datetime]:
         """
-        Get IPO date for a specific stock code from pykrx.
+        Get IPO date for a specific stock symbol from pykrx.
         
         Args:
-            stock_code: Stock code as string
+            stock_symbol: Stock symbol as string
             
         Returns:
             IPO date as datetime object or None if not found
@@ -212,7 +442,7 @@ class KRStockCodeCollector:
             df = stock.get_market_ohlcv_by_date(
                 fromdate="1990-01-01", 
                 todate=datetime.now().strftime("%Y-%m-%d"), 
-                ticker=stock_code
+                ticker=stock_symbol
             )
             
             if not df.empty:
@@ -223,16 +453,16 @@ class KRStockCodeCollector:
             return None
             
         except Exception as e:
-            self.logger.warning(f"Error getting IPO date for {stock_code}: {e}")
+            self.logger.warning(f"Error getting IPO date for {stock_symbol}: {e}")
             return None
     
-    def check_if_delisted(self, stock_code: str) -> Optional[datetime]:
+    def check_if_delisted(self, stock_symbol: str) -> Optional[datetime]:
         """
-        Check if a stock has been delisted by verifying if the stock code stops appearing after a certain date.
-        The delisting date is assumed to be the last date the code appears in pykrx data.
+        Check if a stock has been delisted by verifying if the stock symbol stops appearing after a certain date.
+        The delisting date is assumed to be the last date the symbol appears in pykrx data.
 
         Args:
-            stock_code: Stock code as string
+            stock_symbol: Stock symbol as string
 
         Returns:
             Delisting date if delisted (last available trading date), None if still active
@@ -246,23 +476,23 @@ class KRStockCodeCollector:
             df_recent = stock.get_market_ohlcv_by_date(
                 fromdate=start_date.strftime("%Y-%m-%d"),
                 todate=end_date.strftime("%Y-%m-%d"),
-                ticker=stock_code
+                ticker=stock_symbol
             )
 
             # If there is recent data, the stock is still active
             if not df_recent.empty:
                 return None  # Stock is still active
 
-            # If no recent data, check the last date the stock code appeared in the market
+            # If no recent data, check the last date the stock symbol appeared in the market
             # We'll look back from a reasonable start date (e.g., 1990-01-01)
             df_all = stock.get_market_ohlcv_by_date(
                 fromdate="1990-01-01",
                 todate=end_date.strftime("%Y-%m-%d"),
-                ticker=stock_code
+                ticker=stock_symbol
             )
 
             if not df_all.empty:
-                # The last date the stock code appears is assumed to be the delisting date
+                # The last date the stock symbol appears is assumed to be the delisting date
                 last_date = df_all.index.max()
                 return last_date.date()
             else:
@@ -270,18 +500,18 @@ class KRStockCodeCollector:
                 return None
 
         except Exception as e:
-            self.logger.warning(f"Error checking delisting status for {stock_code}: {e}")
+            self.logger.warning(f"Error checking delisting status for {stock_symbol}: {e}")
             return None
-    def collect_and_update_stock_codes(self) -> bool:
+    def collect_and_update_stock_symbols(self) -> bool:
         """
-        Collect all stock codes and update the database.
+        Collect all stock symbols with company names and update the database.
         This method ensures no duplicate rows are created by properly updating existing records.
         
         Returns:
             True if successful, False otherwise
         """
         try:
-            self.logger.info("Starting stock code collection and update")
+            self.logger.info("Starting stock symbol collection and update")
             
             # First, cleanup any existing duplicates
             self.logger.info("Checking for existing duplicates...")
@@ -304,15 +534,16 @@ class KRStockCodeCollector:
             # Process each company
             for i, company in enumerate(companies):
                 try:
-                    stock_code = company['stock_code']
+                    stock_symbol = company['stock_symbol']
                     stock_market = company['stock_market']
+                    company_name = company.get('company_name', 'Unknown Company')
                     
                     if (i + 1) % 100 == 0:
-                        self.logger.info(f"Processing {i+1}/{len(companies)}: {stock_code} ({stock_market})")
+                        self.logger.info(f"Processing {i+1}/{len(companies)}: {company_name} ({stock_symbol}) - {stock_market}")
                     
                     # Check if record already exists
                     existing_record = session.query(KRStockCode).filter(
-                        KRStockCode.stock_code == stock_code
+                        KRStockCode.stock_symbol == stock_symbol
                     ).first()
                     
                     if existing_record:
@@ -324,8 +555,13 @@ class KRStockCodeCollector:
                             existing_record.stock_market = stock_market
                             updated = True
                         
+                        # Update company name if different
+                        if existing_record.company_name != company_name:
+                            existing_record.company_name = company_name
+                            updated = True
+                        
                         # Check delisting status
-                        delisting_date = self.check_if_delisted(str(stock_code))
+                        delisting_date = self.check_if_delisted(str(stock_symbol))
                         if delisting_date != existing_record.delisting_date:
                             existing_record.delisting_date = delisting_date
                             existing_record.is_active = False
@@ -344,15 +580,16 @@ class KRStockCodeCollector:
                     else:
                         # Create new record
                         # Get IPO date
-                        ipo_date = self.get_ipo_date_from_pykrx(str(stock_code))
+                        ipo_date = self.get_ipo_date_from_pykrx(str(stock_symbol))
                         
                         # Check delisting status
-                        delisting_date = self.check_if_delisted(str(stock_code))
+                        delisting_date = self.check_if_delisted(str(stock_symbol))
                         is_active = delisting_date is None
                         
                         new_record = KRStockCode(
-                            stock_code=stock_code,
+                            stock_symbol=stock_symbol,
                             stock_market=stock_market,
+                            company_name=company_name,
                             ipo_date=ipo_date if ipo_date else None,
                             delisting_date=delisting_date if delisting_date else None,
                             is_active=is_active,
@@ -376,27 +613,27 @@ class KRStockCodeCollector:
             session.commit()
             session.close()
             
-            self.logger.info(f"Stock code collection and update completed successfully")
+            self.logger.info(f"Stock symbol collection and update completed successfully")
             self.logger.info(f"Final statistics - Created: {created_count}, Updated: {updated_count}, Errors: {error_count}, Total processed: {len(companies)}")
             return True
             
         except Exception as e:
-            self.logger.error(f"Error in stock code collection: {e}")
+            self.logger.error(f"Error in stock symbol collection: {e}")
             if 'session' in locals():
                 session.rollback()
                 session.close()
             return False
     
-    def get_stock_codes_from_db(self, market: str = None, active_only: bool = True) -> pd.DataFrame:
+    def get_stock_symbols_from_db(self, market: str = None, active_only: bool = True) -> pd.DataFrame:
         """
-        Retrieve stock codes from database.
+        Retrieve stock symbols from database.
         
         Args:
             market: Filter by market (KOSPI or KOSDAQ)
             active_only: If True, only return active (non-delisted) stocks
             
         Returns:
-            DataFrame containing stock codes
+            DataFrame containing stock symbols
         """
         try:
             session = self.SessionLocal()
@@ -414,8 +651,9 @@ class KRStockCodeCollector:
             data = []
             for record in results:
                 data.append({
-                    'stock_code': record.stock_code,
+                    'stock_symbol': record.stock_symbol,
                     'stock_market': record.stock_market,
+                    'company_name': record.company_name,
                     'ipo_date': record.ipo_date,
                     'delisting_date': record.delisting_date,
                     'is_active': record.is_active,
@@ -426,17 +664,17 @@ class KRStockCodeCollector:
             session.close()
             
             df = pd.DataFrame(data)
-            self.logger.info(f"Retrieved {len(df)} stock codes from database")
+            self.logger.info(f"Retrieved {len(df)} stock symbols from database")
             return df
             
         except Exception as e:
-            self.logger.error(f"Error retrieving stock codes from database: {e}")
+            self.logger.error(f"Error retrieving stock symbols from database: {e}")
             session.close()
             return pd.DataFrame()
     
     def get_statistics(self) -> Dict[str, Any]:
         """
-        Get statistics about the stock codes in the database.
+        Get statistics about the stock symbols in the database.
         
         Returns:
             Dictionary containing statistics
@@ -475,7 +713,7 @@ class KRStockCodeCollector:
     
     def save_to_csv(self, market: str = None, active_only: bool = True, filename: str = None) -> str:
         """
-        Save stock codes data to CSV file in the data/raw/korean_stocks directory.
+        Save stock symbols data to CSV file in the data/raw/korean_stocks directory.
         
         Args:
             market: Filter by market (KOSPI or KOSDAQ)
@@ -487,7 +725,7 @@ class KRStockCodeCollector:
         """
         try:
             # Get data from database
-            df = self.get_stock_codes_from_db(market, active_only)
+            df = self.get_stock_symbols_from_db(market, active_only)
             
             if df.empty:
                 self.logger.warning("No data to save to CSV")
@@ -502,7 +740,7 @@ class KRStockCodeCollector:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 market_suffix = f"_{market}" if market else ""
                 active_suffix = "_active" if active_only else "_all"
-                filename = f"kr_stock_codes{market_suffix}{active_suffix}_{timestamp}.csv"
+                filename = f"kr_stock_symbols{market_suffix}{active_suffix}_{timestamp}.csv"
             
             # Save to CSV
             csv_path = data_dir / filename
@@ -526,22 +764,22 @@ class KRStockCodeCollector:
             saved_files = {}
             
             # Save all stocks (active + delisted)
-            all_stocks_path = self.save_to_csv(active_only=False, filename="kr_stock_codes_all.csv")
+            all_stocks_path = self.save_to_csv(active_only=False, filename="kr_stock_symbols_all.csv")
             if all_stocks_path:
                 saved_files['all_stocks'] = all_stocks_path
             
             # Save active stocks only
-            active_stocks_path = self.save_to_csv(active_only=True, filename="kr_stock_codes_active.csv")
+            active_stocks_path = self.save_to_csv(active_only=True, filename="kr_stock_symbols_active.csv")
             if active_stocks_path:
                 saved_files['active_stocks'] = active_stocks_path
             
             # Save KOSPI stocks
-            kospi_path = self.save_to_csv(market="KOSPI", filename="kr_stock_codes_kospi.csv")
+            kospi_path = self.save_to_csv(market="KOSPI", filename="kr_stock_symbols_kospi.csv")
             if kospi_path:
                 saved_files['kospi_stocks'] = kospi_path
             
             # Save KOSDAQ stocks
-            kosdaq_path = self.save_to_csv(market="KOSDAQ", filename="kr_stock_codes_kosdaq.csv")
+            kosdaq_path = self.save_to_csv(market="KOSDAQ", filename="kr_stock_symbols_kosdaq.csv")
             if kosdaq_path:
                 saved_files['kosdaq_stocks'] = kosdaq_path
             
@@ -550,7 +788,7 @@ class KRStockCodeCollector:
             if stats:
                 stats_df = pd.DataFrame([stats])
                 data_dir = Path("data/raw/korean_stocks")
-                stats_path = data_dir / "kr_stock_codes_statistics.csv"
+                stats_path = data_dir / "kr_stock_symbols_statistics.csv"
                 stats_df.to_csv(stats_path, index=False, encoding='utf-8-sig')
                 saved_files['statistics'] = str(stats_path)
             
@@ -563,33 +801,44 @@ class KRStockCodeCollector:
 
 
 # Convenience functions
-def collect_kr_stock_codes(database_url: str = None) -> bool:
-    """Collect and update Korean stock codes."""
+def collect_kr_stock_symbols(database_url: str = None) -> bool:
+    """Collect and update Korean stock symbols with company names."""
     collector = KRStockCodeCollector(database_url)
-    return collector.collect_and_update_stock_codes()
+    return collector.collect_and_update_stock_symbols()
 
-def cleanup_kr_stock_codes_duplicates(database_url: str = None) -> int:
-    """Clean up duplicate Korean stock codes from database."""
+def cleanup_kr_stock_symbols_duplicates(database_url: str = None) -> int:
+    """Clean up duplicate Korean stock symbols from database."""
     collector = KRStockCodeCollector(database_url)
     return collector.cleanup_duplicates()
 
-def get_kr_stock_codes(market: str = None, active_only: bool = True, database_url: str = None) -> pd.DataFrame:
-    """Get Korean stock codes from database."""
+def get_kr_stock_symbols(market: str = None, active_only: bool = True, database_url: str = None) -> pd.DataFrame:
+    """Get Korean stock symbols from database."""
     collector = KRStockCodeCollector(database_url)
-    return collector.get_stock_codes_from_db(market, active_only)
+    return collector.get_stock_symbols_from_db(market, active_only)
 
-def get_kr_stock_statistics(database_url: str = None) -> Dict[str, Any]:
-    """Get statistics about Korean stock codes."""
+def get_kr_stock_symbols_statistics(database_url: str = None) -> Dict[str, Any]:
+    """Get statistics about Korean stock symbols."""
     collector = KRStockCodeCollector(database_url)
     return collector.get_statistics()
 
-def save_kr_stock_codes_to_csv(market: str = None, active_only: bool = True, 
-                              filename: str = None, database_url: str = None) -> str:
-    """Save Korean stock codes to CSV file."""
+def save_kr_stock_symbols_to_csv(market: str = None, active_only: bool = True, 
+                                filename: str = None, database_url: str = None) -> str:
+    """Save Korean stock symbols to CSV file."""
     collector = KRStockCodeCollector(database_url)
     return collector.save_to_csv(market, active_only, filename)
 
-def save_kr_stock_codes_all_formats(database_url: str = None) -> Dict[str, str]:
-    """Save Korean stock codes in all formats (CSV files)."""
+def save_kr_stock_symbols_all_formats(database_url: str = None) -> Dict[str, str]:
+    """Save Korean stock symbols in all formats (CSV files)."""
     collector = KRStockCodeCollector(database_url)
     return collector.save_all_formats()
+
+def get_database_info(database_url: str = None) -> Dict[str, Any]:
+    """Get PostgreSQL database connection information."""
+    collector = KRStockCodeCollector(database_url)
+    return collector.get_database_info()
+
+def run_database_maintenance(database_url: str = None) -> bool:
+    """Run PostgreSQL database maintenance (VACUUM ANALYZE)."""
+    collector = KRStockCodeCollector(database_url)
+    collector.vacuum_and_analyze()
+    return True

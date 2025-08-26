@@ -1,0 +1,8 @@
+dir: cannot access '/s': No such file or directory
+dir: cannot access '/b': No such file or directory
+dir: cannot access '*.backup': No such file or directory
+dir: cannot access '*.bak': No such file or directory
+dir: cannot access '*.tmp': No such file or directory
+dir: cannot access '*.old': No such file or directory
+dir: cannot access '*.orig': No such file or directory
+dir: cannot access '*~': No such file or directory

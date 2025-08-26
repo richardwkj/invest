@@ -87,10 +87,6 @@ dmypy.json
 .cursor/rules/
 pyproject.toml
 OpenAPI/
-data/raw/korean_stocks/*.db
-*.db
-logs/
-
 config.py
 
 # Environment variables - contains sensitive API keys
@@ -104,3 +100,28 @@ pyproject.toml
 
 # OpenAPI folder - contains generated API documentation and schemas
 OpenAPI/
+
+# Data files - exclude all data from version control
+data/
+data/raw/
+data/processed/
+data/models/
+data/backups/
+data/raw/korean_stocks/
+data/raw/korean_stocks/*.db
+data/raw/korean_stocks/*.csv
+data/raw/us_stocks/
+data/raw/financial_data/
+data/raw/news_data/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Log files
+logs/
+*.log
+
+# CSV files (data exports)
+*.csv

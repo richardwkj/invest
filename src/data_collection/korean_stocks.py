@@ -107,15 +107,56 @@ class KoreanStockCollector:
         else:
             return f"{symbol}{self.kospi_suffix}"
     
+    def get_company_info_from_pykrx(self, symbol: str) -> Dict[str, Any]:
+        """
+        Get detailed company information from pykrx for a specific symbol.
+        
+        Args:
+            symbol: Stock symbol (e.g., "005930")
+        
+        Returns:
+            Dictionary containing company information
+        """
+        try:
+            company_name = stock.get_market_ticker_name(symbol)
+            
+            # Get additional company details
+            company_info = {
+                'stock_code': symbol,
+                'corp_name': company_name.strip() if company_name else f"Unknown Company {symbol}",
+                'market': "KOSPI" if symbol.startswith('0') else "KOSDAQ",
+                'source': 'pykrx'
+            }
+            
+            # Try to get market cap and other financial data
+            try:
+                market_cap = stock.get_market_cap(symbol)
+                if market_cap is not None and not market_cap.empty:
+                    company_info['market_cap'] = market_cap.iloc[-1]['시가총액'] if '시가총액' in market_cap.columns else None
+                    company_info['shares_outstanding'] = market_cap.iloc[-1]['상장주식수'] if '상장주식수' in market_cap.columns else None
+            except:
+                pass
+            
+            return company_info
+            
+        except Exception as e:
+            self.logger.warning(f"Error getting company info for {symbol}: {e}")
+            return {
+                'stock_code': symbol,
+                'corp_name': f"Unknown Company {symbol}",
+                'market': "KOSPI" if symbol.startswith('0') else "KOSDAQ",
+                'source': 'pykrx_error'
+            }
+
     def get_all_stock_codes_from_pykrx(self) -> List[Dict[str, Any]]:
         """
-        Step 1: Access pykrx to get the list of all stock codes.
+        Step 1: Access pykrx to get the list of all stock codes with company names.
         
         Returns:
             List of dictionaries containing stock information from pykrx
         """
         try:
-            self.logger.info("Fetching all stock codes from pykrx")
+            self.logger.info("Fetching all stock codes and company names from pykrx")
             
             # Get all stock tickers from pykrx
             tickers = stock.get_market_ticker_list()
@@ -126,24 +167,52 @@ class KoreanStockCollector:
             
             # Get detailed information for each ticker
             companies = []
-            for ticker in tickers:
+            for i, ticker in enumerate(tickers):
                 try:
-                    # Get stock name
+                    # Get stock name from pykrx
                     name = stock.get_market_ticker_name(ticker)
                     
-                    # Determine market based on ticker pattern
-                    # KOSPI typically has codes starting with 0, KOSDAQ with other numbers
-                    market = "KOSPI" if ticker.startswith('0') else "KOSDAQ"
+                    # Get additional company information
+                    try:
+                        # Get market cap and other details to determine market
+                        market_cap = stock.get_market_cap(ticker)
+                        if market_cap is not None and not market_cap.empty:
+                            # Determine market based on pykrx data
+                            market = "KOSPI" if ticker.startswith('0') else "KOSDAQ"
+                        else:
+                            # Fallback market determination
+                            market = "KOSPI" if ticker.startswith('0') else "KOSDAQ"
+                    except:
+                        # Fallback market determination
+                        market = "KOSPI" if ticker.startswith('0') else "KOSDAQ"
+                    
+                    # Ensure company name is not empty
+                    if not name or name.strip() == "":
+                        name = f"Unknown Company {ticker}"
+                        self.logger.warning(f"Empty company name for ticker {ticker}, using fallback")
                     
                     company_info = {
-                        'corp_name': name,
+                        'corp_name': name.strip(),
                         'stock_code': ticker,
-                        'market': market
+                        'market': market,
+                        'source': 'pykrx'
                     }
                     companies.append(company_info)
                     
+                    # Log progress every 100 companies
+                    if (i + 1) % 100 == 0:
+                        self.logger.info(f"Processed {i + 1}/{len(tickers)} companies")
+                    
                 except Exception as e:
                     self.logger.warning(f"Error getting info for ticker {ticker}: {e}")
+                    # Add fallback entry with basic info
+                    company_info = {
+                        'corp_name': f"Unknown Company {ticker}",
+                        'stock_code': ticker,
+                        'market': "KOSPI" if ticker.startswith('0') else "KOSDAQ",
+                        'source': 'pykrx_fallback'
+                    }
+                    companies.append(company_info)
                     continue
             
             self.logger.info(f"Retrieved {len(companies)} companies from pykrx")
@@ -219,19 +288,20 @@ class KoreanStockCollector:
         self.logger.info(f"Using fallback stock list with {len(fallback_stocks)} companies")
         return fallback_stocks
     
-    def get_stock_data_with_max_history(self, symbol: str, market: str = "KOSPI") -> pd.DataFrame:
+    def get_stock_data_with_max_history(self, symbol: str, market: str = "KOSPI", company_name: str = None) -> pd.DataFrame:
         """
         Step 2: Get maximum historical data for a specific stock with 1-day intervals.
         
         Args:
             symbol: Stock symbol (e.g., "005930")
             market: Market type ("KOSPI" or "KOSDAQ")
+            company_name: Company name from pykrx (optional)
         
         Returns:
             DataFrame containing historical stock data
         """
         try:
-            self.logger.info(f"Fetching max historical data for {symbol} ({market})")
+            self.logger.info(f"Fetching max historical data for {symbol} ({market}) - {company_name or 'Unknown'}")
             
             # Add suffix for Yahoo Finance
             yf_symbol = self._add_suffix(symbol, market)
@@ -264,15 +334,26 @@ class KoreanStockCollector:
                 'Date': 'date'
             })
             
-            # Get company name
-            try:
-                info = stock_obj.info
-                longname = info.get('longName', 'Unknown')
-                df['longname'] = longname
-            except:
-                df['longname'] = 'Unknown'
+            # Prioritize company name from pykrx, fallback to Yahoo Finance
+            if company_name and company_name.strip():
+                df['longname'] = company_name.strip()
+                self.logger.debug(f"Using company name from pykrx: {company_name}")
+            else:
+                # Try to get company name from Yahoo Finance
+                try:
+                    info = stock_obj.info
+                    yf_longname = info.get('longName') or info.get('shortName') or info.get('name')
+                    if yf_longname and yf_longname.strip():
+                        df['longname'] = yf_longname.strip()
+                        self.logger.debug(f"Using company name from Yahoo Finance: {yf_longname}")
+                    else:
+                        df['longname'] = f"Unknown Company {symbol}"
+                        self.logger.warning(f"No company name found for {symbol} from Yahoo Finance")
+                except Exception as e:
+                    df['longname'] = f"Unknown Company {symbol}"
+                    self.logger.warning(f"Error getting company name from Yahoo Finance for {symbol}: {e}")
             
-            self.logger.info(f"Retrieved {len(df)} records for {symbol} ({market})")
+            self.logger.info(f"Retrieved {len(df)} records for {symbol} ({market}) - {df['longname'].iloc[0]}")
             return df
             
         except Exception as e:
@@ -310,12 +391,10 @@ class KoreanStockCollector:
                     
                     self.logger.info(f"Processing {i+1}/{len(companies)}: {corp_name} ({stock_code}) - {market}")
                     
-                    # Get stock data with max history
-                    stock_df = self.get_stock_data_with_max_history(stock_code, market)
+                    # Get stock data with max history (pass company name from pykrx)
+                    stock_df = self.get_stock_data_with_max_history(stock_code, market, corp_name)
                     
                     if not stock_df.empty:
-                        # Add company name from pykrx
-                        stock_df['longname'] = corp_name
                         all_stock_data.append(stock_df)
                         
                         # Save to database
@@ -467,6 +546,28 @@ class KoreanStockCollector:
             session.close()
             return pd.DataFrame()
     
+    def save_companies_info_to_csv(self, companies: List[Dict[str, Any]], filepath: str) -> None:
+        """
+        Save company information to CSV file.
+        
+        Args:
+            companies: List of company information dictionaries
+            filepath: Path to save the CSV file
+        """
+        try:
+            # Create directory if it doesn't exist
+            Path(filepath).parent.mkdir(parents=True, exist_ok=True)
+            
+            # Convert to DataFrame
+            df = pd.DataFrame(companies)
+            
+            # Save to CSV
+            df.to_csv(filepath, index=False, encoding='utf-8-sig')
+            self.logger.info(f"Company information saved to {filepath} ({len(companies)} companies)")
+        except Exception as e:
+            self.logger.error(f"Error saving company information to {filepath}: {e}")
+            raise
+
     def save_to_csv(self, df: pd.DataFrame, filepath: str) -> None:
         """
         Save DataFrame to CSV file.
@@ -502,4 +603,53 @@ def get_stock_data_from_db(symbol: str = None, market: str = None,
 def get_all_stock_codes_from_pykrx() -> List[Dict[str, Any]]:
     """Get all stock codes from pykrx."""
     collector = KoreanStockCollector()
-    return collector.get_all_stock_codes_from_pykrx() 
+    return collector.get_all_stock_codes_from_pykrx()
+
+def get_company_info_from_pykrx(symbol: str) -> Dict[str, Any]:
+    """Get company information from pykrx for a specific symbol."""
+    collector = KoreanStockCollector()
+    return collector.get_company_info_from_pykrx(symbol)
+
+def get_companies_info_from_pykrx(symbols: List[str]) -> List[Dict[str, Any]]:
+    """Get company information from pykrx for multiple symbols."""
+    collector = KoreanStockCollector()
+    companies_info = []
+    
+    for i, symbol in enumerate(symbols):
+        try:
+            company_info = collector.get_company_info_from_pykrx(symbol)
+            companies_info.append(company_info)
+            
+            # Log progress every 50 companies
+            if (i + 1) % 50 == 0:
+                collector.logger.info(f"Processed {i + 1}/{len(symbols)} company info requests")
+                
+        except Exception as e:
+            collector.logger.warning(f"Error getting company info for {symbol}: {e}")
+            continue
+    
+    return companies_info
+
+def collect_and_save_companies_info(output_file: str = "data/raw/korean_stocks/companies_info.csv") -> List[Dict[str, Any]]:
+    """
+    Collect company information for all Korean stocks and save to CSV.
+    
+    Args:
+        output_file: Path to save the CSV file
+    
+    Returns:
+        List of company information dictionaries
+    """
+    collector = KoreanStockCollector()
+    
+    # Get all stock codes
+    companies = collector.get_all_stock_codes_from_pykrx()
+    
+    if not companies:
+        collector.logger.error("No companies found")
+        return []
+    
+    # Save to CSV
+    collector.save_companies_info_to_csv(companies, output_file)
+    
+    return companies 

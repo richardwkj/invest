@@ -13,7 +13,8 @@ from datetime import datetime
 sys.path.append(str(Path(__file__).parent.parent / "src"))
 sys.path.append(str(Path(__file__).parent.parent))
 
-from data_collection.kr_stock_codes import KRStockCodeCollector, collect_kr_stock_codes, get_kr_stock_statistics
+
+from data_collection.kr_stock_codes import KRStockCodeCollector, collect_kr_stock_symbols, get_kr_stock_symbols_statistics
 
 # Try to import settings, but use defaults if not available
 try:
@@ -42,29 +43,25 @@ def main():
         print("   Please install pykrx: pip install pykrx")
         return
     
-    # Check database configuration
-    if not settings.debug and not settings.database_url:
-        print("❌ DATABASE_URL not found for production mode!")
-        print("   Please set DATABASE_URL in your .env file or use debug mode.")
-        return
-    
     print("✅ Configuration check passed")
-    print(f"   Environment: {'Development' if settings.debug else 'Production'}")
-    print(f"   Database: {'SQLite' if settings.debug else 'PostgreSQL'}")
+    print(f"   Environment: Production (PostgreSQL)")
+    print(f"   Target Database: invest_stocks")
     print()
     
     try:
         # Initialize collector
         print("🔧 Initializing KR Stock Code Collector...")
         
-        if settings.debug:
-            # Use SQLite for development - save to data/raw/korean_stocks
-            data_dir = Path("data/raw/korean_stocks")
-            data_dir.mkdir(parents=True, exist_ok=True)
-            database_url = f"sqlite:///{data_dir}/kr_stock_codes.db"
-        else:
-            # Use PostgreSQL for production
-            database_url = settings.database_url
+        # Use PostgreSQL for invest_stocks database
+        try:
+            from config.database_config import get_database_url
+            database_url = get_database_url("invest_user")  # Use invest_user for better security
+        except ImportError:
+            # Fallback to default connection
+            database_url = "postgresql://invest_user:Lwhfy!3!a@localhost:5432/invest_stocks"
+        
+        print(f"   Database: PostgreSQL (invest_stocks)")
+        print(f"   Connection: {database_url.replace('password', '***')}")
         
         collector = KRStockCodeCollector(database_url)
         print("✅ Collector initialized successfully")
@@ -98,7 +95,7 @@ def main():
         print()
         
         # Run the collection
-        success = collector.collect_and_update_stock_codes()
+        success = collector.collect_and_update_stock_symbols()
         
         if success:
             print()
@@ -133,7 +130,7 @@ def main():
                 print("   No files saved")
             
             print(f"\n📋 Database Table: kr_stock_codes")
-            print(f"   Columns: stock_code, stock_market, ipo_date, delisting_date, is_active")
+            print(f"   Columns: stock_symbol, stock_market, company_name, ipo_date, delisting_date, is_active")
             
         else:
             print("❌ Stock codes collection failed")

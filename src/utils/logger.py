@@ -11,15 +11,18 @@ from typing import Optional
 
 # Try to import settings, but don't fail if not available
 try:
-    from config.settings import settings
+    from ..config.settings import settings
 except ImportError:
-    # Create a simple settings object if config is not available
-    class SimpleSettings:
-        debug = True
-        log_level = "INFO"
-        log_file = None
-    
-    settings = SimpleSettings()
+    try:
+        from config.settings import settings
+    except ImportError:
+        # Create a simple settings object if config is not available
+        class SimpleSettings:
+            debug = True
+            log_level = "INFO"
+            log_file_path = None
+        
+        settings = SimpleSettings()
 
 
 class InterceptHandler(logging.Handler):
@@ -112,7 +115,7 @@ def get_logger(name: str) -> logger:
 
 # Initialize logging on module import
 setup_logging(
-    log_file=settings.log_file,
+    log_file=settings.log_file_path,
     log_level=settings.log_level
 )
 

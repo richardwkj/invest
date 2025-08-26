@@ -31,27 +31,25 @@ def main():
         print("   Please install pykrx: pip install pykrx")
         return
     
-    # Check database configuration
-    if not settings.debug and not settings.database_url:
-        print("❌ DATABASE_URL not found for production mode!")
-        print("   Please set DATABASE_URL in your .env file or use debug mode.")
-        return
-    
     print("✅ Configuration check passed")
-    print(f"   Environment: {'Development' if settings.debug else 'Production'}")
-    print(f"   Database: {'SQLite' if settings.debug else 'PostgreSQL'}")
+    print(f"   Environment: Production (PostgreSQL)")
+    print(f"   Target Database: invest_stocks")
     print()
     
     try:
         # Initialize collector
         print("🔧 Initializing Korean Stock Collector...")
         
-        if settings.debug:
-            # Use SQLite for development
-            database_url = "sqlite:///./korean_stocks.db"
-        else:
-            # Use PostgreSQL for production
-            database_url = settings.database_url
+        # Use PostgreSQL for invest_stocks database
+        try:
+            from config.database_config import get_database_url
+            database_url = get_database_url("invest_user")  # Use invest_user for better security
+        except ImportError:
+            # Fallback to default connection
+            database_url = "postgresql://invest_user:Lwhfy!3!a@localhost:5432/invest_stocks"
+        
+        print(f"   Database: PostgreSQL (invest_stocks)")
+        print(f"   Connection: {database_url.replace('password', '***')}")
         
         collector = KoreanStockCollector(database_url)
         print("✅ Collector initialized successfully")
